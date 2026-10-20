@@ -29,16 +29,22 @@ jobs:
         with:
           xcode-version: ${{ env._XCODE_VERSION }}
 
-      - name: Configure Ruby
-        uses: ruby/setup-ruby@12fd324f1d0b43274fdc8130f6980590a667c455 # v1.312.0
+      - name: Restore Mint packages
+        id: mint-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          bundler-cache: true
+          path: .mint
+          key: ${{ runner.os }}-mint-catalyst-${{ hashFiles('Mintfile') }}
 
-      - name: Install Homebrew Dependencies and run bootstrap.sh
+      # Only the tools needed to generate/build the project; SwiftLint, SwiftFormat, Sourcery and
+      # LicensePlist are not needed (lint is skipped when CI is set, LicensePlist runs in Debug only).
+      - name: Install build tools and generate Xcode projects
         run: |
-          brew update
-          brew bundle
-          ./Scripts/bootstrap.sh
+          brew install mint
+          mint install yonaskolb/xcodegen@2.44.1
+          mint install SwiftGen/SwiftGen@6.6.3
+          mint run xcodegen --spec project-bwk.yml
+          mint run xcodegen --spec project-pm.yml
 
       - name: Build for macOS Catalyst
         run: |
