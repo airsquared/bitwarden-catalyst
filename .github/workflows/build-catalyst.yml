@@ -1,13 +1,7 @@
 name: Build Password Manager (macOS Catalyst)
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
-  pull_request:
-    paths:
-      - .github/workflows/build-catalyst.yml
 
 env:
   MINT_LINK_PATH: .mint/bin
