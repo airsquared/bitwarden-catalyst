@@ -1,0 +1,79 @@
+name: Build Password Manager (macOS Catalyst)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - .github/workflows/build-catalyst.yml
+
+env:
+  MINT_LINK_PATH: .mint/bin
+  MINT_PATH: .mint/lib
+
+jobs:
+  build:
+    name: Build Catalyst (Apple Silicon)
+    runs-on: macos-26-xlarge
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read Xcode version
+        run: echo "_XCODE_VERSION=$(tr -d '\n' < .xcode-version)" >> "$GITHUB_ENV"
+
+      - name: Set Xcode version
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: ${{ env._XCODE_VERSION }}
+
+      - name: Configure Ruby
+        uses: ruby/setup-ruby@12fd324f1d0b43274fdc8130f6980590a667c455 # v1.312.0
+        with:
+          bundler-cache: true
+
+      - name: Install Homebrew Dependencies and run bootstrap.sh
+        run: |
+          brew update
+          brew bundle
+          ./Scripts/bootstrap.sh
+
+      - name: Build for macOS Catalyst
+        run: |
+          xcrun xcodebuild build \
+            -workspace Bitwarden.xcworkspace \
+            -scheme Bitwarden \
+            -configuration Release \
+            -destination "platform=macOS,variant=Mac Catalyst,arch=arm64" \
+            -derivedDataPath build/DerivedData \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            SUPPORTS_MACCATALYST=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            -quiet
+
+      - name: Create DMG
+        run: |
+          APP_PATH=$(find build/DerivedData/Build/Products -maxdepth 2 -name "Bitwarden.app" | head -n 1)
+          echo "Found app: $APP_PATH"
+          mkdir -p build/dmg
+          cp -R "$APP_PATH" build/dmg/
+          hdiutil create -volname Bitwarden -srcfolder build/dmg -ov -format UDZO build/Bitwarden-Catalyst.dmg
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Bitwarden-Catalyst-dmg
+          path: build/Bitwarden-Catalyst.dmg
