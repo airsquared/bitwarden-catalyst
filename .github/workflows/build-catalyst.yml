@@ -16,7 +16,7 @@ env:
 jobs:
   build:
     name: Build Catalyst (Apple Silicon)
-    runs-on: macos-26-xlarge
+    runs-on: macos-latest
     timeout-minutes: 60
     permissions:
       contents: read
