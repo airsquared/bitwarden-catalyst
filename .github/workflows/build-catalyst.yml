@@ -53,8 +53,9 @@ jobs:
           echo "sdk-internal commit: $SDK_COMMIT"
           git clone --filter=blob:none https://github.com/bitwarden/sdk-internal.git ../sdk-internal
           git -C ../sdk-internal checkout "$SDK_COMMIT"
-          rustup target add aarch64-apple-ios-macabi aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
           cd ../sdk-internal/crates/bitwarden-uniffi/swift
+          # sdk-internal pins its own Rust toolchain (rust-toolchain.toml), so add targets from inside it
+          rustup target add aarch64-apple-ios-macabi aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
           python3 - <<'PY'
           s = open("build.sh").read()
           a = 'cargo build --package bitwarden-uniffi --target aarch64-apple-ios $PROFILE_FLAG\n'
