@@ -43,6 +43,33 @@ jobs:
           brew install mint
           mint install yonaskolb/xcodegen@2.44.1
           mint install SwiftGen/SwiftGen@6.6.3
+
+      # The prebuilt BitwardenFFI.xcframework from sdk-swift has no Mac Catalyst slice, so build the
+      # SDK from sdk-internal (same commit as the pinned sdk-swift release) with an added
+      # aarch64-apple-ios-macabi slice, and consume it via the repo's LOCAL_SDK support.
+      - name: Build BitwardenSdk with Mac Catalyst slice
+        run: |
+          SDK_COMMIT=$(grep -o 'revision: .*# .*-\([0-9a-f]\{7\}\)$' project-common.yml | grep -o '[0-9a-f]\{7\}$')
+          echo "sdk-internal commit: $SDK_COMMIT"
+          git clone --filter=blob:none https://github.com/bitwarden/sdk-internal.git ../sdk-internal
+          git -C ../sdk-internal checkout "$SDK_COMMIT"
+          rustup target add aarch64-apple-ios-macabi aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+          cd ../sdk-internal/crates/bitwarden-uniffi/swift
+          python3 - <<'PY'
+          s = open("build.sh").read()
+          a = 'cargo build --package bitwarden-uniffi --target aarch64-apple-ios $PROFILE_FLAG\n'
+          b = '  -output ./BitwardenFFI.xcframework'
+          assert a in s and b in s
+          s = s.replace(a, a + 'cargo build --package bitwarden-uniffi --target aarch64-apple-ios-macabi $PROFILE_FLAG\n')
+          s = s.replace(b, '  -library ../../../target/aarch64-apple-ios-macabi/$PROFILE/libbitwarden_uniffi.a \\\n  -headers ./tmp/Headers \\\n' + b)
+          open("build.sh", "w").write(s)
+          PY
+          ./build.sh
+
+      - name: Generate Xcode projects
+        env:
+          LOCAL_SDK: "true"
+        run: |
           mint run xcodegen --spec project-bwk.yml
           mint run xcodegen --spec project-pm.yml
 
