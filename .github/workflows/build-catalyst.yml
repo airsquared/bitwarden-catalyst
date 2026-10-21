@@ -1,0 +1,106 @@
+name: Build Password Manager (macOS Catalyst)
+
+on:
+  push:
+
+env:
+  MINT_LINK_PATH: .mint/bin
+  MINT_PATH: .mint/lib
+
+jobs:
+  build:
+    name: Build Catalyst (Apple Silicon)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read Xcode version
+        run: echo "_XCODE_VERSION=$(tr -d '\n' < .xcode-version)" >> "$GITHUB_ENV"
+
+      - name: Set Xcode version
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: ${{ env._XCODE_VERSION }}
+
+      - name: Restore Mint packages
+        id: mint-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .mint
+          key: ${{ runner.os }}-mint-catalyst-${{ hashFiles('Mintfile') }}
+
+      # Only the tools needed to generate/build the project; SwiftLint, SwiftFormat, Sourcery and
+      # LicensePlist are not needed (lint is skipped when CI is set, LicensePlist runs in Debug only).
+      - name: Install build tools and generate Xcode projects
+        run: |
+          brew install mint
+          mint install yonaskolb/xcodegen@2.44.1
+          mint install SwiftGen/SwiftGen@6.6.3
+
+      # The prebuilt BitwardenFFI.xcframework from sdk-swift has no Mac Catalyst slice, so build the
+      # SDK from sdk-internal (same commit as the pinned sdk-swift release) with an added
+      # aarch64-apple-ios-macabi slice, and consume it via the repo's LOCAL_SDK support.
+      - name: Build BitwardenSdk with Mac Catalyst slice
+        run: |
+          SDK_COMMIT=$(grep -o 'revision: .*# .*-\([0-9a-f]\{7\}\)$' project-common.yml | grep -o '[0-9a-f]\{7\}$')
+          echo "sdk-internal commit: $SDK_COMMIT"
+          git clone --filter=blob:none https://github.com/bitwarden/sdk-internal.git ../sdk-internal
+          git -C ../sdk-internal checkout "$SDK_COMMIT"
+          cd ../sdk-internal/crates/bitwarden-uniffi/swift
+          # sdk-internal pins its own Rust toolchain (rust-toolchain.toml), so add targets from inside it
+          rustup target add aarch64-apple-ios-macabi aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+          python3 - <<'PY'
+          s = open("build.sh").read()
+          a = 'cargo build --package bitwarden-uniffi --target aarch64-apple-ios $PROFILE_FLAG\n'
+          b = '  -output ./BitwardenFFI.xcframework'
+          assert a in s and b in s
+          s = s.replace(a, a + 'IPHONEOS_DEPLOYMENT_TARGET=13.1 cargo build --package bitwarden-uniffi --target aarch64-apple-ios-macabi $PROFILE_FLAG\n')
+          s = s.replace(b, '  -library ../../../target/aarch64-apple-ios-macabi/$PROFILE/libbitwarden_uniffi.a \\\n  -headers ./tmp/Headers \\\n' + b)
+          open("build.sh", "w").write(s)
+          PY
+          ./build.sh
+
+      - name: Generate Xcode projects
+        env:
+          LOCAL_SDK: "true"
+        run: |
+          mint run xcodegen --spec project-bwk.yml
+          mint run xcodegen --spec project-pm.yml
+
+      - name: Build for macOS Catalyst
+        run: |
+          xcrun xcodebuild build \
+            -workspace Bitwarden.xcworkspace \
+            -scheme Bitwarden \
+            -configuration Release \
+            -destination "platform=macOS,variant=Mac Catalyst,arch=arm64" \
+            -derivedDataPath build/DerivedData \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            -quiet
+
+      - name: Create DMG
+        run: |
+          APP_PATH=$(find build/DerivedData/Build/Products -maxdepth 2 -name "Bitwarden.app" | head -n 1)
+          echo "Found app: $APP_PATH"
+          mkdir -p build/dmg
+          cp -R "$APP_PATH" build/dmg/
+          hdiutil create -volname Bitwarden -srcfolder build/dmg -ov -format UDZO build/Bitwarden-Catalyst.dmg
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Bitwarden-Catalyst-dmg
+          path: build/Bitwarden-Catalyst.dmg
