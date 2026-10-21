@@ -61,7 +61,7 @@ jobs:
           a = 'cargo build --package bitwarden-uniffi --target aarch64-apple-ios $PROFILE_FLAG\n'
           b = '  -output ./BitwardenFFI.xcframework'
           assert a in s and b in s
-          s = s.replace(a, a + 'cargo build --package bitwarden-uniffi --target aarch64-apple-ios-macabi $PROFILE_FLAG\n')
+          s = s.replace(a, a + 'IPHONEOS_DEPLOYMENT_TARGET=13.1 cargo build --package bitwarden-uniffi --target aarch64-apple-ios-macabi $PROFILE_FLAG\n')
           s = s.replace(b, '  -library ../../../target/aarch64-apple-ios-macabi/$PROFILE/libbitwarden_uniffi.a \\\n  -headers ./tmp/Headers \\\n' + b)
           open("build.sh", "w").write(s)
           PY
